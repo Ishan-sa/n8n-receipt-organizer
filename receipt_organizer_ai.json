@@ -1,0 +1,397 @@
+{
+  "name": "Smart Receipt Organizer",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message", "channel_post"],
+        "additionalFields": {}
+      },
+      "id": "b092b3b3-989e-4ac3-abc2-f785293eae72",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [-576, -416],
+      "webhookId": "auto-generated",
+      "credentials": {
+        "telegramApi": {
+          "id": "xuFTbOQ62YpwhOpY",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.newFileName }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.driveFolderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "867168cc-7ee7-4a42-af40-2e5bd1158f05",
+      "name": "Backup to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [544, -416],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "EkoZTEdJjBuNNGjR",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// --------------------------------------------------------\n// CONFIGURATION: PASTE YOUR GOOGLE DRIVE FOLDER IDS HERE\n// --------------------------------------------------------\nconst FOLDER_IDS = {\n  \"Eating Out\":    \"YOUR_FOLDER_ID_HERE\",\n  \"Groceries\":     \"YOUR_FOLDER_ID_HERE\",\n  \"Utilities\":     \"YOUR_FOLDER_ID_HERE\",\n  \"Transport\":     \"YOUR_FOLDER_ID_HERE\",\n  \"Shopping\":      \"YOUR_FOLDER_ID_HERE\",\n  \"Subscriptions\": \"YOUR_FOLDER_ID_HERE\",\n  \"Tech & Office\": \"YOUR_FOLDER_ID_HERE\",\n  \"Medical\":       \"YOUR_FOLDER_ID_HERE\",\n  \"Miscellaneous\": \"YOUR_FOLDER_ID_HERE\" \n};\n\n// --------------------------------------------------------\n// 1. EXTRACT AI RESPONSE\n// --------------------------------------------------------\nconst item = $input.first();\nconst json = item.json;\n\n// Handle Google Gemini's deeply nested structure\nlet aiOutput = json.candidates?.[0]?.content?.parts?.[0]?.text || json.text || json.response;\n\nif (!aiOutput) {\n  throw new Error(\"Could not find text in AI response. Check input structure.\");\n}\n\n// --------------------------------------------------------\n// 2. CLEAN & PARSE JSON\n// --------------------------------------------------------\nif (aiOutput.includes('```')) {\n  aiOutput = aiOutput.split('```')[1];\n  aiOutput = aiOutput.replace(/^json\\s*/i, '');\n}\n\nlet receiptData = {};\ntry {\n  receiptData = JSON.parse(aiOutput.trim());\n} catch (e) {\n  receiptData = { \n    summary: aiOutput, \n    vendor: 'Parse Error', \n    amount: 0, \n    currency: 'CAD',\n    category: 'Miscellaneous' \n  }; \n}\n\n// --------------------------------------------------------\n// 3. LOGIC: FOLDERS, RENAMING & CURRENCY\n// --------------------------------------------------------\n\nconst category = receiptData.category || 'Miscellaneous';\nconst targetFolderId = FOLDER_IDS[category] || FOLDER_IDS['Miscellaneous'];\n\n// --- FILE EXTENSION FIX (PDF/JPG) ---\nconst binaryData = $('Get File').first().binary;\nconst binaryKey = Object.keys(binaryData)[0]; \nconst fileExtension = binaryData[binaryKey].fileExtension || 'jpg';\n\nconst date = receiptData.date || new Date().toISOString().split('T')[0];\nconst safeVendor = (receiptData.vendor || 'Unknown').replace(/[^a-zA-Z0-9]/g, ''); \nconst amount = receiptData.amount || 0;\n\n// Use the detected currency, or default to CAD if AI missed it\nconst currency = (receiptData.currency || 'CAD').toUpperCase();\n\n// Filename includes currency now for clarity: \"2025-11-28_GitHub_20_USD.pdf\"\nconst newFileName = `${date}_${safeVendor}_${amount}_${currency}.${fileExtension}`;\n\n// --------------------------------------------------------\n// 4. RETURN DATA\n// --------------------------------------------------------\nreturn {\n  json: {\n    vendor: receiptData.vendor || 'Unknown',\n    date: date,\n    amount: parseFloat(amount),\n    // Pass the dynamic currency to Sheets\n    currency: currency, \n    category: category,\n    summary: receiptData.summary || '',\n    driveFolderId: targetFolderId,\n    newFileName: newFileName\n  },\n  binary: binaryData\n};"
+      },
+      "id": "715fa366-277c-4081-b1df-e426a45d195c",
+      "name": "Format Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [304, -416]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1zdHPccdCdOzoV6TRQwddHdtZ4P-I91fnANsvQs4cvDU",
+          "mode": "list",
+          "cachedResultName": "receipt_hub",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zdHPccdCdOzoV6TRQwddHdtZ4P-I91fnANsvQs4cvDU/edit#gid=0"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $('Format Data').first().json.date }}",
+            "Vendor": "={{ $('Format Data').first().json.vendor }}",
+            "Amount": "={{ $('Format Data').first().json.amount }}",
+            "Currency": "={{ $('Format Data').first().json.currency }}",
+            "Category": "={{ $('Format Data').first().json.category }}",
+            "Link": "={{ $json.webViewLink }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Vendor",
+              "displayName": "Vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Link",
+              "displayName": "Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ffc80004-d07a-4d8e-8893-f484ea57a232",
+      "name": "Save to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [736, -416],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Epz7c0im8OMtFCM4",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=✅ <b>Receipt saved!</b>\n\n💰 Amount: ${{ $('Format Data').first().json.amount }} {{ $('Format Data').first().json.currency }}\n🏪 Vendor: {{ $('Format Data').first().json.vendor }}\n📁 Category: {{ $('Format Data').first().json.category }}\n📅 Date: {{ $('Format Data').first().json.date }}\n\n🔗 <a href=\"{{ $('Backup to Drive').first().json.webViewLink }}\">View in Drive</a>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "416a7789-a767-41ba-a055-3cbec823c3f1",
+      "name": "Send Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, -416],
+      "webhookId": "a7e3681e-27de-44be-be8d-7c9fce3f8031",
+      "credentials": {
+        "telegramApi": {
+          "id": "xuFTbOQ62YpwhOpY",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Analyze this receipt and return ONLY a raw JSON object (no markdown) with fields: \n- vendor\n- date (YYYY-MM-DD)\n- amount (number)\n- currency: Return the 3-letter ISO code (e.g. 'USD', 'CAD', 'EUR'). If the currency symbol is generic ($) and no address is found, assume 'CAD'.\n- summary\n- category: This MUST be exactly one of the following strings: 'Eating Out', 'Groceries', 'Utilities', 'Transport', 'Shopping', 'Subscriptions', 'Tech & Office', 'Medical', 'Miscellaneous'. If you are unsure, use 'Miscellaneous'.",
+        "inputType": "binary",
+        "simplify": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [64, -576],
+      "id": "21949401-5686-4352-9526-c239036a4d4d",
+      "name": "Analyze an image",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "p84bEFwG3jhgIwIp",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "39bc76ff-01b1-4699-8db3-00faa20e5a82",
+              "leftValue": "={{ $input.first().binary.data.mimeType }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-144, -416],
+      "id": "795539c8-d668-4341-ba38-5c39eeb8ac0d",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "Analyze this receipt and return ONLY a raw JSON object (no markdown) with fields: \n- vendor\n- date (YYYY-MM-DD)\n- amount (number)\n- currency: Return the 3-letter ISO code (e.g. 'USD', 'CAD', 'EUR'). If the currency symbol is generic ($) and no address is found, assume 'CAD'.\n- summary\n- category: This MUST be exactly one of the following strings: 'Eating Out', 'Groceries', 'Utilities', 'Transport', 'Shopping', 'Subscriptions', 'Tech & Office', 'Medical', 'Miscellaneous'. If you are unsure, use 'Miscellaneous'.",
+        "inputType": "binary",
+        "simplify": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [64, -304],
+      "id": "29857232-9d49-48c4-9dbf-2edb6717deff",
+      "name": "Analyze a file",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "p84bEFwG3jhgIwIp",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.photo ? $json.message.photo[$json.message.photo.length - 1].file_id : $json.message.document.file_id }}",
+        "additionalFields": {}
+      },
+      "id": "4402927e-3d54-4282-8ba7-ea1e84fcfb2c",
+      "name": "Get File",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [-368, -416],
+      "webhookId": "cbe76ba7-fcb6-445a-894a-9c7088f8822f",
+      "credentials": {
+        "telegramApi": {
+          "id": "xuFTbOQ62YpwhOpY",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data": {
+      "main": [
+        [
+          {
+            "node": "Backup to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup to Drive": {
+      "main": [
+        [
+          {
+            "node": "Save to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze an image": {
+      "main": [
+        [
+          {
+            "node": "Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Analyze an image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze a file": {
+      "main": [
+        [
+          {
+            "node": "Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "91550b15-bca1-4aec-a1ea-6779c9ef35ed",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0023d4f5dfb57fec37ca9d230f69e0e19118190dca2bfc4d821fffd957cc37e7"
+  },
+  "id": "4zHWtizvsvvFg5By",
+  "tags": []
+}
